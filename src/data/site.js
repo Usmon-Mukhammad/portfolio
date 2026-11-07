@@ -256,13 +256,13 @@ export const resumes = [
   {
     code: 'EN',
     label: 'English',
-    href: './resume-en.pdf',
+    href: '/resume-en.pdf',
     file: 'Muhammad_Usmonov_Resume_EN.pdf',
   },
   {
     code: 'RU',
     label: 'Русский',
-    href: './resume-ru.pdf',
+    href: '/resume-ru.pdf',
     file: 'Muhammad_Usmonov_Resume_RU.pdf',
   },
 ]

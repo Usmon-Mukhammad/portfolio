@@ -92,6 +92,104 @@
   }
 }
 
+/* Article body rendered from Markdown (content/blog). */
+@layer components {
+  .prose-post {
+    @apply text-[1.075rem] leading-[1.8] text-ink-muted;
+  }
+
+  .prose-post > * + * {
+    @apply mt-6;
+  }
+
+  .prose-post h2 {
+    @apply mt-14 text-[1.65rem] font-semibold leading-tight tracking-tight text-ink;
+  }
+
+  .prose-post h3 {
+    @apply mt-10 text-xl font-semibold leading-snug text-ink;
+  }
+
+  .prose-post h4 {
+    @apply mt-8 font-semibold text-ink;
+  }
+
+  .prose-post strong {
+    @apply font-semibold text-ink;
+  }
+
+  .prose-post a {
+    @apply font-medium text-ink underline decoration-edge-strong underline-offset-4 transition-colors hover:decoration-ink;
+  }
+
+  .prose-post ul,
+  .prose-post ol {
+    @apply space-y-2 pl-6;
+  }
+
+  .prose-post ul {
+    @apply list-disc;
+  }
+
+  .prose-post ol {
+    @apply list-decimal;
+  }
+
+  .prose-post li::marker {
+    @apply text-ink-faint;
+  }
+
+  .prose-post blockquote {
+    @apply border-l-2 border-ink pl-5 italic text-ink;
+  }
+
+  .prose-post hr {
+    @apply my-12 border-edge;
+  }
+
+  .prose-post img {
+    @apply mx-auto rounded-card border border-edge;
+  }
+
+  .prose-post :not(pre) > code {
+    @apply rounded-md bg-card-2 px-1.5 py-0.5 font-mono text-[0.88em] text-ink ring-1 ring-inset ring-edge;
+  }
+
+  .prose-post pre {
+    @apply overflow-x-auto rounded-card border border-edge p-5 font-mono text-[0.88rem] leading-relaxed;
+  }
+
+  .prose-post table {
+    @apply block w-full overflow-x-auto text-left text-[0.95rem];
+  }
+
+  .prose-post th {
+    @apply border-b border-edge-strong px-3 py-2 font-semibold text-ink;
+  }
+
+  .prose-post td {
+    @apply border-b border-edge px-3 py-2;
+  }
+
+  /* Display maths scrolls sideways on narrow screens instead of overflowing. */
+  .prose-post .katex-display {
+    @apply overflow-x-auto overflow-y-hidden py-1;
+  }
+
+  .prose-post .katex {
+    @apply text-ink;
+  }
+}
+
+/* Shiki emits light colours inline and dark ones as CSS variables. */
+.prose-post pre.shiki {
+  background-color: rgb(var(--card-2)) !important;
+}
+
+.dark .prose-post .shiki span {
+  color: var(--shiki-dark) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

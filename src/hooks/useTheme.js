@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 const KEY = 'theme'
 
 function resolve() {
+  // Blog pages are prerendered in Node, where there is no window.
+  if (typeof window === 'undefined') return 'light'
   const stored = localStorage.getItem(KEY)
   if (stored === 'light' || stored === 'dark') return stored
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'

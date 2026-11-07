@@ -3,15 +3,29 @@ import { Download, Menu, Moon, Sun, X } from 'lucide-react'
 import { profile, resumes, sections } from '../data/site'
 import useActiveSection from '../hooks/useActiveSection'
 import useTheme from '../hooks/useTheme'
+import { posts } from '../data/blog'
+import { paths } from '../router'
 import logo from '../assets/logo.png'
 
 const ids = sections.map(s => s.id)
 const cv = resumes[0]
+const BLOG = 'blog'
+const NONE = []
 
-export default function Nav() {
+export default function Nav({ route }) {
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
-  const active = useActiveSection(ids)
+  const home = route.name === 'home'
+  const onBlog = ['blog', 'series', 'post'].includes(route.name)
+  const spied = useActiveSection(home ? ids : NONE)
+  const active = onBlog ? BLOG : home ? spied : ''
+
+  // Section links are in-page anchors on the home page and point back to it
+  // from everywhere else. The blog link appears once something is published.
+  const links = [
+    ...sections.map(({ id, label }) => ({ id, label, href: home ? `#${id}` : `/#${id}` })),
+    ...(posts.length ? [{ id: BLOG, label: 'Blog', href: paths.blog }] : []),
+  ]
   const { theme, toggle } = useTheme()
 
   useEffect(() => {
@@ -44,20 +58,20 @@ export default function Nav() {
               : 'border-transparent bg-transparent'
           }`}
         >
-          <a href="#top" className="flex items-center gap-2.5">
+          <a href={home ? '#top' : '/'} className="flex items-center gap-2.5">
             <img src={logo} alt="" className="h-3.5 w-auto dark:invert" />
-            <span className="font-display text-sm font-bold tracking-tight text-ink">
+            <span className="whitespace-nowrap font-display text-sm font-bold tracking-tight text-ink">
               {profile.name}
             </span>
           </a>
 
-          <ul className="hidden items-center gap-1 lg:flex">
-            {sections.map(({ id, label }) => (
+          <ul className="hidden items-center gap-0.5 lg:flex xl:gap-1">
+            {links.map(({ id, label, href }) => (
               <li key={id}>
                 <a
-                  href={`#${id}`}
+                  href={href}
                   aria-current={active === id ? 'true' : undefined}
-                  className={`rounded-pill px-3.5 py-2 text-sm font-medium transition-colors ${
+                  className={`whitespace-nowrap rounded-pill px-2.5 py-2 text-sm font-medium transition-colors xl:px-3.5 ${
                     active === id
                       ? 'bg-card-2 text-ink ring-1 ring-inset ring-edge'
                       : 'text-ink-muted hover:text-ink'
@@ -83,7 +97,7 @@ export default function Nav() {
             <a
               href={cv.href}
               download={cv.file}
-              className="btn-solid hidden !px-5 !py-2.5 !text-[0.8rem] sm:inline-flex"
+              className="btn-solid hidden whitespace-nowrap !px-5 !py-2.5 !text-[0.8rem] sm:inline-flex"
             >
               <Download size={14} aria-hidden="true" />
               Download CV
@@ -105,10 +119,10 @@ export default function Nav() {
         {open && (
           <div id="mobile-nav" className="card mt-2 p-2 lg:hidden">
             <ul className="flex flex-col">
-              {sections.map(({ id, label }) => (
+              {links.map(({ id, label, href }) => (
                 <li key={id}>
                   <a
-                    href={`#${id}`}
+                    href={href}
                     onClick={() => setOpen(false)}
                     className={`block rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
                       active === id ? 'bg-card-2 text-ink' : 'text-ink-muted hover:text-ink'
