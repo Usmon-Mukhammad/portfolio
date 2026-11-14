@@ -13,6 +13,7 @@ import { Marked } from 'marked'
 import markedKatex from 'marked-katex-extension'
 import { createHighlighter } from 'shiki'
 import { parseFrontmatter, postProblems } from '../src/lib/postFormat.js'
+import { mediaRenderer } from '../src/lib/media.js'
 const LANGS = ['python', 'bash', 'shell', 'json', 'javascript', 'typescript', 'jsx', 'yaml', 'toml', 'sql', 'text']
 const WORDS_PER_MINUTE = 220
 
@@ -42,7 +43,7 @@ function readingMinutes(body) {
 
 export async function renderMarkdown(body) {
   const hl = await highlighter()
-  const marked = new Marked(markedKatex({ throwOnError: true, nonStandard: true }), {
+  const marked = new Marked(markedKatex({ throwOnError: true, nonStandard: true }), { renderer: mediaRenderer }, {
     gfm: true,
     renderer: {
       code({ text, lang }) {
