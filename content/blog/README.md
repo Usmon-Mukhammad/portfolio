@@ -34,6 +34,14 @@ The slugs `ai` and `quantum` are reserved for the series pages.
 - Images go in `public/blog/<slug>/` and are referenced as
   `![Alt text](/blog/<slug>/figure.png)`.
 
+## Writing in the browser
+
+`https://ameer.uz/admin/` is an editor with a live preview. It saves posts
+straight to this folder on `main` through the GitHub API, which redeploys the
+site. It needs a fine-grained GitHub token limited to this repository with
+**Contents: Read and write**; the page explains how to make one. The token is
+kept only in that browser. The page is not linked anywhere and is `noindex`.
+
 ## Publishing workflow
 
 1. Write with `draft: true` and preview with `npm run dev` → `/blog/`.

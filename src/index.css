@@ -90,6 +90,11 @@
   .btn-quiet {
     @apply btn border border-edge-strong bg-card text-ink hover:border-ink;
   }
+
+  /* Text inputs in the /admin editor. */
+  .field {
+    @apply block w-full rounded-xl border border-edge-strong bg-card-2 px-3.5 py-2.5 text-[0.95rem] text-ink placeholder:text-ink-faint focus:border-ink focus:outline-none disabled:opacity-60;
+  }
 }
 
 /* Article body rendered from Markdown (content/blog). */

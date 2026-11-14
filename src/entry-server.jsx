@@ -13,6 +13,7 @@ export function routes() {
     paths.blog,
     ...Object.keys(series).map(paths.series),
     ...posts.map(p => paths.post(p.slug)),
+    paths.admin,
     '/404.html',
   ]
 }
@@ -41,6 +42,9 @@ function headFor(route, url) {
       modifiedTime: p.updated,
       tags: p.tags,
     }
+  }
+  if (route.name === 'admin') {
+    return { ...base, title: 'Blog editor — Muhammad Usmonov', description: 'Private blog editor.', noindex: true }
   }
   return { ...base, title: 'Page not found — Muhammad Usmonov', description: 'This page does not exist.', noindex: true }
 }

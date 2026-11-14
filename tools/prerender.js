@@ -93,7 +93,7 @@ ${items}
 `,
 )
 
-const urls = ['/', ...routes().filter(u => !u.endsWith('.html'))]
+const urls = ['/', ...routes().filter(u => !u.endsWith('.html') && u !== '/admin/')]
 const lastmod = new Map(posts.map(p => [`/blog/${p.slug}/`, p.updated || p.date]))
 await writeFile(
   path.join(dist, 'sitemap.xml'),

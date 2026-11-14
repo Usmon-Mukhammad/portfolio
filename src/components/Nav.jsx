@@ -3,7 +3,6 @@ import { Download, Menu, Moon, Sun, X } from 'lucide-react'
 import { profile, resumes, sections } from '../data/site'
 import useActiveSection from '../hooks/useActiveSection'
 import useTheme from '../hooks/useTheme'
-import { posts } from '../data/blog'
 import { paths } from '../router'
 import logo from '../assets/logo.png'
 
@@ -21,10 +20,10 @@ export default function Nav({ route }) {
   const active = onBlog ? BLOG : home ? spied : ''
 
   // Section links are in-page anchors on the home page and point back to it
-  // from everywhere else. The blog link appears once something is published.
+  // from everywhere else.
   const links = [
     ...sections.map(({ id, label }) => ({ id, label, href: home ? `#${id}` : `/#${id}` })),
-    ...(posts.length ? [{ id: BLOG, label: 'Blog', href: paths.blog }] : []),
+    { id: BLOG, label: 'Blog', href: paths.blog },
   ]
   const { theme, toggle } = useTheme()
 

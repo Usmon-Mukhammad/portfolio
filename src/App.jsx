@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import Nav from './components/Nav'
 import Hero from './components/Hero'
 import Profile from './components/Profile'
@@ -10,6 +11,9 @@ import Footer from './components/Footer'
 import BlogList from './components/blog/BlogList'
 import Post from './components/blog/Post'
 import NotFound from './components/blog/NotFound'
+
+// The editor (and its Markdown/KaTeX preview) loads only on /admin.
+const Admin = lazy(() => import('./components/admin/Admin'))
 
 function Home() {
   return (
@@ -35,6 +39,12 @@ function Page({ route, postHtml }) {
       return <BlogList seriesId={route.series} />
     case 'post':
       return <Post slug={route.slug} html={postHtml} />
+    case 'admin':
+      return (
+        <Suspense fallback={<p className="shell py-20 text-ink-muted">Loading editor…</p>}>
+          <Admin />
+        </Suspense>
+      )
     default:
       return <NotFound />
   }

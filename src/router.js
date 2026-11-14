@@ -8,6 +8,7 @@ export function parseRoute(pathname) {
   const parts = pathname.replace(/index\.html$/, '').split('/').filter(Boolean)
 
   if (parts.length === 0) return { name: 'home' }
+  if (parts.length === 1 && parts[0] === 'admin') return { name: 'admin' }
   if (parts[0] !== 'blog') return { name: 'notfound' }
   if (parts.length === 1) return { name: 'blog' }
   if (parts.length === 2 && series[parts[1]]) return { name: 'series', series: parts[1] }
@@ -16,6 +17,7 @@ export function parseRoute(pathname) {
 }
 
 export const paths = {
+  admin: '/admin/',
   blog: '/blog/',
   series: id => `/blog/${id}/`,
   post: slug => `/blog/${slug}/`,
