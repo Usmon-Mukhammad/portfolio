@@ -1,18 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, FilePlus2, KeyRound, LogOut, RefreshCw, Save, Send } from 'lucide-react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Eye, ExternalLink, FilePlus2, KeyRound, LogOut, PenLine, RefreshCw, Save, Send } from 'lucide-react'
 import {
   actionsUrl,
   checkAccess,
   listPostSlugs,
   loadPostFile,
   newTokenUrl,
+  rawUrl,
   REPO,
-  savePostFile,
+  savePost,
   tokenStore,
 } from '../../lib/github'
 import { parseFrontmatter, postProblems, serializePost, SERIES, slugFromTitle } from '../../lib/postFormat'
 import { renderPreview } from '../../lib/previewMarkdown'
+import { blobToBase64, prepareImage } from '../../lib/images'
 import { series as seriesInfo, SITE_URL } from '../../data/blog'
+import RichEditor from './RichEditor'
 import 'katex/dist/katex.min.css'
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -56,9 +59,10 @@ const tagList = tags =>
     .filter(Boolean)
 
 /**
- * /admin — write and publish blog posts from the browser. Saving commits the
- * Markdown file to the repository through the GitHub API; the existing
- * deploy workflow then rebuilds the site.
+ * /admin — a Medium-style editor for blog posts. Text, images, videos, code
+ * and maths are edited visually; the post is stored as Markdown. Saving
+ * commits the post and its new images to the repository in one commit, and
+ * the deploy workflow publishes it.
  */
 export default function Admin() {
   const [token, setToken] = useState('')
@@ -69,20 +73,27 @@ export default function Admin() {
   const [notice, setNotice] = useState(null)
 
   const [post, setPost] = useState(emptyPost)
-  const [sha, setSha] = useState(null) // set when editing a post that exists on GitHub
+  const [docKey, setDocKey] = useState(0) // bumps when another post is opened
+  const [initialBody, setInitialBody] = useState('')
+  const [sha, setSha] = useState(null) // version on GitHub when editing an existing post
   const [wasDraft, setWasDraft] = useState(true)
   const [slugTouched, setSlugTouched] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [view, setView] = useState('write')
+
+  // Images chosen in this session: site path -> { blob, url (object URL), saved }.
+  const media = useRef(new Map())
 
   const editing = sha !== null
-  const preview = useMemo(() => renderPreview(post.body), [post.body])
+  const preview = useMemo(() => (view === 'preview' ? renderPreview(post.body) : null), [view, post.body])
+  const mathsError = useMemo(() => renderPreview(post.body).error, [post.body])
   const problems = useMemo(
     () => [
       ...postProblems({ ...post, tags: tagList(post.tags) }, post.slug),
-      ...(post.body.trim() ? [] : ['the article text is empty']),
-      ...(preview.error ? [preview.error] : []),
+      ...(post.body.trim() ? [] : ['the article is empty']),
+      ...(mathsError ? [mathsError] : []),
     ],
-    [post, preview.error],
+    [post, mathsError],
   )
 
   async function connect(value) {
@@ -132,39 +143,58 @@ export default function Admin() {
     setPost(p => ({ ...p, [field]: value, ...(followTitle ? { slug: slugFromTitle(value) } : {}) }))
   }
 
-  function confirmDiscard() {
-    return !dirty || window.confirm('Discard your unsaved changes?')
-  }
-
-  function startNew() {
-    if (!confirmDiscard()) return
-    setPost(emptyPost())
-    setSha(null)
-    setWasDraft(true)
-    setSlugTouched(false)
+  function load(next, { sha: nextSha = null, draft = true } = {}) {
+    setPost(next)
+    setInitialBody(next.body)
+    setDocKey(k => k + 1)
+    setSha(nextSha)
+    setWasDraft(draft)
+    setSlugTouched(nextSha !== null)
     setDirty(false)
     setNotice(null)
     setError('')
+    setView('write')
+  }
+
+  const confirmDiscard = () => !dirty || window.confirm('Discard your unsaved changes?')
+
+  function startNew() {
+    if (confirmDiscard()) load(emptyPost())
   }
 
   async function open(slug) {
     if (!confirmDiscard()) return
     setBusy(`open:${slug}`)
     setError('')
-    setNotice(null)
     try {
       const file = await loadPostFile(token, slug)
       const loaded = fromSource(slug, file.source)
-      setPost(loaded.post)
-      setWasDraft(loaded.draft)
-      setSha(file.sha)
-      setSlugTouched(true)
-      setDirty(false)
+      load(loaded.post, { sha: file.sha, draft: loaded.draft })
     } catch (err) {
       setError(err.message)
     } finally {
       setBusy('')
     }
+  }
+
+  async function uploadImage(file) {
+    try {
+      const { blob, path } = await prepareImage(file)
+      media.current.set(path, { blob, url: URL.createObjectURL(blob), saved: false })
+      setDirty(true)
+      return path
+    } catch (err) {
+      window.alert(err.message)
+      return ''
+    }
+  }
+
+  // Images in the editor: new ones from memory, saved ones straight from
+  // GitHub (they reach the site only after the next deploy).
+  function displayUrl(url) {
+    const local = media.current.get(url)
+    if (local) return local.url
+    return url.startsWith('/blog/') ? rawUrl(url) : url
   }
 
   async function save(asDraft) {
@@ -183,19 +213,25 @@ export default function Admin() {
         code: post.code,
         medium: post.medium,
       }
+      // Only images still in the article and not saved before.
+      const newMedia = [...media.current.entries()].filter(([path, m]) => !m.saved && post.body.includes(path))
+      const encoded = await Promise.all(newMedia.map(async ([path, m]) => ({ path, base64: await blobToBase64(m.blob) })))
+
       const verb = editing ? 'Update' : 'Add'
-      const result = await savePostFile(token, {
+      const result = await savePost(token, {
         slug: post.slug,
         source: serializePost(data, post.body),
         sha,
+        media: encoded,
         message: `${verb} ${asDraft ? 'draft' : 'post'}: ${post.title}`,
       })
+      for (const [, m] of newMedia) m.saved = true
       setSha(result.sha)
       setWasDraft(asDraft)
       setSlugTouched(true)
       setDirty(false)
       setSlugs(s => (s.includes(post.slug) ? s : [...s, post.slug].sort()))
-      setNotice({ asDraft, commitUrl: result.commitUrl, slug: post.slug })
+      setNotice({ asDraft, commitUrl: result.commitUrl, slug: post.slug, images: newMedia.length })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -203,108 +239,247 @@ export default function Admin() {
     }
   }
 
-  return (
-    <section className="py-10 sm:py-14">
-      <div className="shell">
-        <p className="badge">Admin</p>
-        <h1 className="mt-5 text-section font-semibold text-ink">Blog editor</h1>
-        <p className="mt-3 max-w-readable text-ink-muted">
-          Posts are saved to <code className="text-ink">{REPO.owner}/{REPO.name}</code> on GitHub. Publishing
-          rebuilds the site; the post is live in about two minutes.
-        </p>
-
-        {!account ? (
+  if (!account) {
+    return (
+      <section className="py-10 sm:py-14">
+        <div className="shell">
+          <p className="badge">Admin</p>
+          <h1 className="mt-5 text-section font-semibold text-ink">Blog editor</h1>
           <TokenForm busy={busy === 'connect'} error={error} onConnect={connect} />
-        ) : (
-          <div className="mt-8 grid gap-6 xl:grid-cols-[16rem_1fr]">
-            <aside className="card h-fit p-5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm text-ink-muted">
-                  Signed in as <span className="font-semibold text-ink">{account.login}</span>
-                </p>
-                <button type="button" onClick={forget} className="text-ink-faint hover:text-ink" title="Forget token">
-                  <LogOut size={15} aria-label="Forget token" />
-                </button>
-              </div>
+        </div>
+      </section>
+    )
+  }
 
-              <button type="button" onClick={startNew} className="btn-solid mt-4 w-full !py-2.5">
-                <FilePlus2 size={15} aria-hidden="true" />
-                New post
+  const status = editing ? (wasDraft ? 'Draft' : 'Published') : 'New post'
+
+  return (
+    <section className="pb-16 pt-6 sm:pt-8">
+      <div className="shell">
+        <div className="grid gap-6 xl:grid-cols-[13rem_minmax(0,1fr)_17rem]">
+          {/* Posts */}
+          <aside className="h-fit xl:sticky xl:top-28">
+            <button type="button" onClick={startNew} className="btn-solid w-full !py-2.5">
+              <FilePlus2 size={15} aria-hidden="true" />
+              New post
+            </button>
+            <div className="mt-5 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Your posts</p>
+              <button
+                type="button"
+                onClick={() => listPostSlugs(token).then(setSlugs, e => setError(e.message))}
+                className="text-ink-faint hover:text-ink"
+                title="Refresh list"
+              >
+                <RefreshCw size={13} aria-label="Refresh list" />
               </button>
+            </div>
+            <ul className="mt-2 flex gap-1 overflow-x-auto xl:block xl:space-y-1">
+              {slugs.map(slug => (
+                <li key={slug} className="flex-none">
+                  <button
+                    type="button"
+                    onClick={() => open(slug)}
+                    disabled={!!busy}
+                    className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      editing && post.slug === slug
+                        ? 'bg-card font-medium text-ink ring-1 ring-inset ring-edge'
+                        : 'text-ink-muted hover:bg-card hover:text-ink'
+                    }`}
+                  >
+                    {busy === `open:${slug}` ? 'Opening…' : slug}
+                  </button>
+                </li>
+              ))}
+              {slugs.length === 0 && <li className="px-3 py-2 text-sm text-ink-faint">No posts yet.</li>}
+            </ul>
+            <div className="mt-6 flex items-center justify-between gap-2 border-t border-edge pt-4 text-xs text-ink-faint">
+              <span className="truncate">{account.login}</span>
+              <button type="button" onClick={forget} className="inline-flex items-center gap-1 hover:text-ink">
+                <LogOut size={12} aria-hidden="true" />
+                Forget token
+              </button>
+            </div>
+          </aside>
 
-              <div className="mt-5 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Posts on GitHub</p>
-                <button
-                  type="button"
-                  onClick={() => listPostSlugs(token).then(setSlugs, e => setError(e.message))}
-                  className="text-ink-faint hover:text-ink"
-                  title="Refresh list"
-                >
-                  <RefreshCw size={13} aria-label="Refresh list" />
-                </button>
-              </div>
-              <ul className="mt-2 space-y-1">
-                {slugs.map(slug => (
-                  <li key={slug}>
+          {/* Writing surface */}
+          <div className="min-w-0">
+            <div className="sticky top-24 z-30 flex flex-wrap items-center gap-2 rounded-pill border border-edge bg-card/90 px-3 py-2 shadow-soft backdrop-blur-xl">
+              <span className="px-2 text-sm text-ink-muted">
+                <span className="font-medium text-ink">{status}</span>
+                {dirty && ' · unsaved changes'}
+              </span>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <div className="flex rounded-pill bg-card-2 p-0.5 ring-1 ring-inset ring-edge">
+                  {[
+                    ['write', 'Write', PenLine],
+                    ['preview', 'Preview', Eye],
+                  ].map(([id, label, Icon]) => (
                     <button
+                      key={id}
                       type="button"
-                      onClick={() => open(slug)}
-                      disabled={!!busy}
-                      className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                        editing && post.slug === slug
-                          ? 'bg-card-2 font-medium text-ink ring-1 ring-inset ring-edge'
-                          : 'text-ink-muted hover:bg-card-2 hover:text-ink'
+                      onClick={() => setView(id)}
+                      aria-pressed={view === id}
+                      className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-xs font-medium ${
+                        view === id ? 'bg-card text-ink shadow-soft' : 'text-ink-muted hover:text-ink'
                       }`}
                     >
-                      {busy === `open:${slug}` ? 'Opening…' : slug}
+                      <Icon size={13} aria-hidden="true" />
+                      {label}
                     </button>
-                  </li>
-                ))}
-                {slugs.length === 0 && <li className="px-3 py-2 text-sm text-ink-faint">No posts yet.</li>}
-              </ul>
-            </aside>
-
-            <div className="min-w-0">
-              <Editor post={post} editing={editing} onChange={update} />
-
-              {(error || notice) && <Status error={error} notice={notice} />}
-
-              {problems.length > 0 && (
-                <ul className="mt-4 space-y-1 text-sm text-ink-muted">
-                  {problems.map(p => (
-                    <li key={p}>• {p}</li>
                   ))}
-                </ul>
-              )}
-
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => save(false)}
-                  disabled={!!busy || problems.length > 0}
-                  className="btn-solid disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Send size={15} aria-hidden="true" />
-                  {busy === 'publish' ? 'Publishing…' : editing && !wasDraft ? 'Update post' : 'Publish'}
-                </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => save(true)}
                   disabled={!!busy || problems.length > 0}
-                  className="btn-quiet disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn-quiet !px-4 !py-2 !text-[0.8rem] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <Save size={15} aria-hidden="true" />
-                  {busy === 'draft' ? 'Saving…' : editing && !wasDraft ? 'Unpublish (save as draft)' : 'Save draft'}
+                  <Save size={14} aria-hidden="true" />
+                  {busy === 'draft' ? 'Saving…' : editing && !wasDraft ? 'Unpublish' : 'Save draft'}
                 </button>
-                {dirty && <span className="text-sm text-ink-faint">Unsaved changes</span>}
+                <button
+                  type="button"
+                  onClick={() => save(false)}
+                  disabled={!!busy || problems.length > 0}
+                  className="btn-solid !px-4 !py-2 !text-[0.8rem] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Send size={14} aria-hidden="true" />
+                  {busy === 'publish' ? 'Publishing…' : editing && !wasDraft ? 'Update' : 'Publish'}
+                </button>
               </div>
-
-              <Preview post={post} preview={preview} />
             </div>
+
+            {(error || notice) && <Status error={error} notice={notice} />}
+            {problems.length > 0 && (dirty || editing) && (
+              <ul className="mt-3 space-y-0.5 px-4 text-sm text-ink-muted">
+                {problems.map(p => (
+                  <li key={p}>• {p}</li>
+                ))}
+              </ul>
+            )}
+
+            <article className="card mt-4 px-5 py-8 sm:px-12 sm:py-12">
+              <div className="mx-auto max-w-[44rem]">
+                <AutoTextarea
+                  value={post.title}
+                  onChange={v => update('title', v)}
+                  placeholder="Title"
+                  className="font-display text-[clamp(2rem,4.5vw,3rem)] font-semibold leading-[1.1] tracking-[-0.03em] text-ink"
+                />
+                <AutoTextarea
+                  value={post.description}
+                  onChange={v => update('description', v)}
+                  placeholder="A short subtitle — shown on cards, Google and link previews"
+                  className="mt-3 text-xl leading-relaxed text-ink-muted"
+                />
+                <div className="mt-6 border-t border-edge pt-6">
+                  {/* Kept mounted while previewing so its undo history survives. */}
+                  <div hidden={view !== 'write'}>
+                    <RichEditor
+                      docKey={docKey}
+                      initialMarkdown={initialBody}
+                      onChange={md => update('body', md)}
+                      onUpload={uploadImage}
+                      displayUrl={displayUrl}
+                    />
+                  </div>
+                  {view === 'preview' &&
+                    (preview.html ? (
+                      <div
+                        className="prose-post"
+                        dangerouslySetInnerHTML={{ __html: withLocalImages(preview.html, displayUrl) }}
+                      />
+                    ) : (
+                      <p className="text-sm text-ink">⚠ {preview.error}</p>
+                    ))}
+                </div>
+              </div>
+            </article>
           </div>
-        )}
+
+          {/* Settings */}
+          <aside className="h-fit space-y-4 xl:sticky xl:top-28">
+            <div className="card space-y-4 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Post settings</p>
+              <Field label="Series">
+                <select className="field" value={post.series} onChange={e => update('series', e.target.value)}>
+                  {SERIES.map(id => (
+                    <option key={id} value={id}>
+                      {seriesInfo[id].title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="URL" hint={editing ? 'fixed' : undefined}>
+                <input
+                  className="field font-mono text-xs"
+                  value={post.slug}
+                  onChange={e => update('slug', e.target.value)}
+                  disabled={editing}
+                  placeholder="from the title"
+                />
+                <p className="mt-1 truncate text-xs text-ink-faint">
+                  {SITE_URL.replace('https://', '')}/blog/{post.slug || '…'}/
+                </p>
+              </Field>
+              <Field label="Date">
+                <input type="date" className="field" value={post.date} onChange={e => update('date', e.target.value)} />
+              </Field>
+              <Field label="Tags" hint="comma-separated">
+                <input className="field" value={post.tags} onChange={e => update('tags', e.target.value)} placeholder="LLMs, Foundations" />
+              </Field>
+              <Field label="Code link" hint="optional">
+                <input type="url" className="field" value={post.code} onChange={e => update('code', e.target.value)} placeholder="https://github.com/…" />
+              </Field>
+              <Field label="Medium link" hint="optional">
+                <input type="url" className="field" value={post.medium} onChange={e => update('medium', e.target.value)} placeholder="https://medium.com/…" />
+              </Field>
+            </div>
+            <div className="card p-5 text-sm leading-relaxed text-ink-muted">
+              <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Tips</p>
+              <ul className="mt-2 space-y-1.5">
+                <li>
+                  Type <kbd className="chip !px-1.5 !py-0">/</kbd> on an empty line for headings, images, video, code,
+                  maths, tables, quotes and lists.
+                </li>
+                <li>Select text for bold, italic, links and inline code.</li>
+                <li>Paste a YouTube or Vimeo link on its own line to embed the video.</li>
+                <li>
+                  Maths: <code>$x^2$</code> inline, or “Math” from the <kbd className="chip !px-1.5 !py-0">/</kbd> menu.
+                </li>
+                <li>Images are resized and saved with the post when you publish.</li>
+              </ul>
+            </div>
+          </aside>
+        </div>
       </div>
     </section>
+  )
+}
+
+/** New images exist only in this browser until saved; show those in the preview too. */
+function withLocalImages(html, displayUrl) {
+  return html.replace(/(<img src=")(\/blog\/[^"]+)"/g, (_, start, path) => `${start}${displayUrl(path)}"`)
+}
+
+function AutoTextarea({ value, onChange, placeholder, className }) {
+  const ref = useRef(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      onChange={e => onChange(e.target.value.replace(/\n/g, ' '))}
+      className={`block w-full resize-none overflow-hidden border-0 bg-transparent p-0 placeholder:text-ink-faint/70 focus:outline-none focus:ring-0 ${className}`}
+    />
   )
 }
 
@@ -361,9 +536,9 @@ function TokenForm({ busy, error, onConnect }) {
   )
 }
 
-function Field({ label, hint, children, className = '' }) {
+function Field({ label, hint, children }) {
   return (
-    <label className={`block ${className}`}>
+    <label className="block">
       <span className="text-sm font-medium text-ink">{label}</span>
       {hint && <span className="ml-2 text-xs text-ink-faint">{hint}</span>}
       <div className="mt-1.5">{children}</div>
@@ -371,60 +546,14 @@ function Field({ label, hint, children, className = '' }) {
   )
 }
 
-function Editor({ post, editing, onChange }) {
-  const bind = field => ({ value: post[field], onChange: e => onChange(field, e.target.value) })
-  return (
-    <div className="card p-5 sm:p-7">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Title" className="sm:col-span-2">
-          <input className="field" {...bind('title')} placeholder="How LLMs actually generate text" />
-        </Field>
-        <Field label="URL" hint={editing ? 'fixed after the first save' : `${SITE_URL}/blog/…/`} className="sm:col-span-2">
-          <input className="field font-mono text-sm" {...bind('slug')} disabled={editing} placeholder="how-llms-generate-text" />
-        </Field>
-        <Field label="Description" hint="shown on cards, Google and link previews" className="sm:col-span-2">
-          <textarea className="field" rows={2} {...bind('description')} />
-        </Field>
-        <Field label="Series">
-          <select className="field" {...bind('series')}>
-            {SERIES.map(id => (
-              <option key={id} value={id}>
-                {seriesInfo[id].title}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Date">
-          <input type="date" className="field" {...bind('date')} />
-        </Field>
-        <Field label="Tags" hint="comma-separated" className="sm:col-span-2">
-          <input className="field" {...bind('tags')} placeholder="LLMs, Foundations" />
-        </Field>
-        <Field label="Code link" hint="optional">
-          <input type="url" className="field" {...bind('code')} placeholder="https://github.com/…" />
-        </Field>
-        <Field label="Medium link" hint="optional">
-          <input type="url" className="field" {...bind('medium')} placeholder="https://medium.com/…" />
-        </Field>
-        <Field label="Article" hint="Markdown · $maths$ · ```python code```" className="sm:col-span-2">
-          <textarea
-            className="field min-h-[24rem] font-mono text-sm leading-relaxed"
-            {...bind('body')}
-            placeholder={'## First section\n\nWrite here…'}
-          />
-        </Field>
-      </div>
-    </div>
-  )
-}
-
 function Status({ error, notice }) {
-  if (error) return <p className="card mt-4 p-4 text-sm text-ink">⚠ {error}</p>
+  if (error) return <p className="card mt-3 p-4 text-sm text-ink">⚠ {error}</p>
   const url = `${SITE_URL}/blog/${notice.slug}/`
+  const images = notice.images ? ` with ${notice.images} new image${notice.images > 1 ? 's' : ''}` : ''
   return (
-    <div className="card mt-4 p-4 text-sm leading-relaxed text-ink-muted">
+    <div className="card mt-3 p-4 text-sm leading-relaxed text-ink-muted">
       <p className="font-medium text-ink">
-        {notice.asDraft ? 'Saved as a draft — not visible on the site.' : 'Published. The site is rebuilding.'}
+        {notice.asDraft ? `Saved as a draft${images} — not visible on the site.` : `Published${images}. The site is rebuilding.`}
       </p>
       <p className="mt-1">
         {!notice.asDraft && (
@@ -444,25 +573,6 @@ function Status({ error, notice }) {
           Deploy status <ExternalLink size={12} aria-hidden="true" />
         </a>
       </p>
-    </div>
-  )
-}
-
-function Preview({ post, preview }) {
-  return (
-    <div className="mt-8">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Preview</p>
-      <article className="card mt-2 p-6 sm:p-10">
-        <h1 className="font-display text-[clamp(1.75rem,4vw,2.75rem)] font-semibold leading-tight text-ink">
-          {post.title || 'Untitled'}
-        </h1>
-        {post.description && <p className="mt-4 text-lg leading-relaxed text-ink-muted">{post.description}</p>}
-        {preview.html ? (
-          <div className="prose-post mt-8 border-t border-edge pt-8" dangerouslySetInnerHTML={{ __html: preview.html }} />
-        ) : (
-          <p className="mt-8 border-t border-edge pt-8 text-sm text-ink">⚠ {preview.error}</p>
-        )}
-      </article>
     </div>
   )
 }

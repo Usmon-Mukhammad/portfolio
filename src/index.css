@@ -153,7 +153,26 @@
   }
 
   .prose-post img {
-    @apply mx-auto rounded-card border border-edge;
+    @apply mx-auto h-auto max-w-full rounded-card border border-edge;
+  }
+
+  .prose-post figure {
+    @apply my-10;
+  }
+
+  .prose-post figcaption {
+    @apply mt-3 text-center text-sm leading-snug text-ink-faint;
+  }
+
+  /* YouTube / Vimeo players: full width, 16:9. */
+  .prose-post .embed,
+  .embed-editor {
+    @apply my-10 aspect-video w-full overflow-hidden rounded-card border border-edge bg-card-2;
+  }
+
+  .prose-post .embed iframe,
+  .embed-editor iframe {
+    @apply h-full w-full border-0;
   }
 
   .prose-post :not(pre) > code {
@@ -242,5 +261,61 @@
     content: ' (' attr(href) ')';
     font-size: 9pt;
     color: #555;
+  }
+}
+
+/* Visual editor on /admin (Milkdown Crepe), in the site's colours. */
+.blog-editor .milkdown {
+  --crepe-color-background: rgb(var(--card));
+  --crepe-color-on-background: rgb(var(--ink));
+  --crepe-color-surface: rgb(var(--card-2));
+  --crepe-color-surface-low: rgb(var(--edge));
+  --crepe-color-on-surface: rgb(var(--ink));
+  --crepe-color-on-surface-variant: rgb(var(--ink-2));
+  --crepe-color-outline: rgb(var(--edge-2));
+  --crepe-color-primary: rgb(var(--ink));
+  --crepe-color-secondary: rgb(var(--edge-2));
+  --crepe-color-on-secondary: rgb(var(--ink));
+  --crepe-color-inverse: rgb(var(--ink));
+  --crepe-color-on-inverse: rgb(var(--page));
+  --crepe-color-inline-code: rgb(var(--ink));
+  --crepe-color-error: #c62828;
+  --crepe-color-hover: rgb(var(--edge));
+  --crepe-color-selected: rgb(var(--edge-2));
+  --crepe-color-inline-area: rgb(var(--card-2));
+  --crepe-base-font-size: 18px;
+  --crepe-font-title: 'Space Grotesk', Inter, system-ui, sans-serif;
+  --crepe-font-default: Inter, system-ui, sans-serif;
+  --crepe-font-code: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --crepe-shadow-1: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -12px rgb(0 0 0 / 0.25);
+  --crepe-shadow-2: 0 2px 4px rgb(0 0 0 / 0.08), 0 16px 40px -16px rgb(0 0 0 / 0.35);
+  background: transparent;
+}
+
+.blog-editor .milkdown .ProseMirror:focus,
+.blog-editor .milkdown .ProseMirror:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Menus and tooltips above the sticky action bar (z-30), below the nav (z-50). */
+.blog-editor .milkdown-slash-menu,
+.blog-editor .milkdown-toolbar,
+.blog-editor .milkdown-block-handle,
+.blog-editor .milkdown-link-preview,
+.blog-editor .milkdown-link-edit,
+.blog-editor .milkdown-latex-inline-edit {
+  z-index: 40;
+}
+
+.blog-editor .milkdown .ProseMirror {
+  padding: 0.5rem 0 4rem 3.5rem;
+  min-height: 24rem;
+  line-height: 1.75;
+}
+
+@media (max-width: 640px) {
+  .blog-editor .milkdown .ProseMirror {
+    padding-left: 0.25rem;
   }
 }

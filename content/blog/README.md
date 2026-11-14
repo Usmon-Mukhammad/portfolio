@@ -36,9 +36,19 @@ The slugs `ai` and `quantum` are reserved for the series pages.
 
 ## Writing in the browser
 
-`https://ameer.uz/admin/` is an editor with a live preview. It saves posts
-straight to this folder on `main` through the GitHub API, which redeploys the
-site. It needs a fine-grained GitHub token limited to this repository with
+`https://ameer.uz/admin/` is a Medium-style visual editor (Milkdown Crepe):
+type `/` for headings, images, video, code, maths, tables and lists; select
+text to format it. It saves posts straight to this folder on `main` through
+the GitHub API, which redeploys the site. Uploaded images are resized in the
+browser and committed with the post to `public/blog/media/<year>/<month>/`.
+
+## Images and video
+
+- An image on its own line becomes a figure; its title is the caption:
+  `![Alt text](/blog/media/2026/11/figure.webp "Caption")`.
+- A YouTube or Vimeo link on its own line becomes a responsive player
+  (YouTube uses the privacy-friendly youtube-nocookie.com domain).
+- Host videos on YouTube or Vimeo (unlisted is fine) rather than in the repo. It needs a fine-grained GitHub token limited to this repository with
 **Contents: Read and write**; the page explains how to make one. The token is
 kept only in that browser. The page is not linked anywhere and is `noindex`.
 

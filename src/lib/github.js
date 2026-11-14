@@ -79,27 +79,88 @@ export async function loadPostFile(token, slug) {
   return { source: decode(file.content), sha: file.sha }
 }
 
-/** Creates the post (no sha) or updates it (sha of the version being replaced). */
-export async function savePostFile(token, { slug, source, sha, message }) {
+async function currentSha(token, path) {
   try {
-    const res = await request(token, `${repoPath}/contents/${filePath(slug)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ message, content: encode(source), branch: REPO.branch, ...(sha ? { sha } : {}) }),
-    })
-    return { sha: res.content.sha, commitUrl: res.commit.html_url }
+    return (await request(token, `${repoPath}/contents/${path}?ref=${REPO.branch}`)).sha
   } catch (err) {
-    if (err.status === 422 && !sha) {
-      throw new GitHubError(`A post with the URL "${slug}" already exists. Open it from the list or choose another URL.`, 422)
-    }
-    if (err.status === 409) {
-      throw new GitHubError('This post changed on GitHub since you opened it. Reopen it to get the latest version.', 409)
-    }
-    if (err.status === 403 || err.status === 404) {
-      throw new GitHubError('The token is not allowed to write to the repository. It needs "Contents: Read and write".', err.status)
-    }
+    if (err.status === 404) return null
     throw err
   }
 }
+
+const friendly = err => {
+  if (err.status === 403 || err.status === 404) {
+    return new GitHubError('The token is not allowed to write to the repository. It needs "Contents: Read and write".', err.status)
+  }
+  return err
+}
+
+/**
+ * Saves a post and any new images in ONE commit on `main` (Git Data API), so
+ * each save triggers one deploy. `sha` is the version of the post that was
+ * opened (null for a new post); the save is refused if GitHub has a different
+ * version, so nothing written elsewhere is overwritten.
+ *
+ * media: [{ path: '/blog/media/…', base64 }] — stored under public/.
+ */
+export async function savePost(token, { slug, source, sha, message, media = [] }) {
+  const postPath = filePath(slug)
+  try {
+    const existing = await currentSha(token, postPath)
+    if (!sha && existing) {
+      throw new GitHubError(`A post with the URL "${slug}" already exists. Open it from the list or choose another URL.`, 422)
+    }
+    if (sha && existing !== sha) {
+      throw new GitHubError('This post changed on GitHub since you opened it. Reopen it to get the latest version.', 409)
+    }
+
+    const files = [
+      { path: postPath, base64: encode(source) },
+      ...media.map(m => ({ path: `public${m.path}`, base64: m.base64 })),
+    ]
+    const blobs = []
+    for (const f of files) {
+      const blob = await request(token, `${repoPath}/git/blobs`, {
+        method: 'POST',
+        body: JSON.stringify({ content: f.base64, encoding: 'base64' }),
+      })
+      blobs.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha })
+    }
+
+    // Retry once if main moved while the files were uploading.
+    for (let attempt = 0; ; attempt++) {
+      const ref = await request(token, `${repoPath}/git/ref/heads/${REPO.branch}`)
+      const head = await request(token, `${repoPath}/git/commits/${ref.object.sha}`)
+      const tree = await request(token, `${repoPath}/git/trees`, {
+        method: 'POST',
+        body: JSON.stringify({ base_tree: head.tree.sha, tree: blobs }),
+      })
+      const commit = await request(token, `${repoPath}/git/commits`, {
+        method: 'POST',
+        body: JSON.stringify({ message, tree: tree.sha, parents: [ref.object.sha] }),
+      })
+      try {
+        await request(token, `${repoPath}/git/refs/heads/${REPO.branch}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ sha: commit.sha, force: false }),
+        })
+      } catch (err) {
+        if (err.status === 422 && attempt === 0) continue
+        throw err
+      }
+      return {
+        sha: blobs[0].sha,
+        commitUrl: `https://github.com/${REPO.owner}/${REPO.name}/commit/${commit.sha}`,
+      }
+    }
+  } catch (err) {
+    // Our own conflict messages pass through; GitHub's 403/404 get a clearer one.
+    throw friendly(err)
+  }
+}
+
+/** Where a committed image can be shown right away, before the site redeploys. */
+export const rawUrl = path => `https://raw.githubusercontent.com/${REPO.owner}/${REPO.name}/${REPO.branch}/public${path}`
 
 export const actionsUrl = `https://github.com/${REPO.owner}/${REPO.name}/actions`
 export const newTokenUrl = 'https://github.com/settings/personal-access-tokens/new'
