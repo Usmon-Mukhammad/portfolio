@@ -12,8 +12,7 @@ import path from 'node:path'
 import { Marked } from 'marked'
 import markedKatex from 'marked-katex-extension'
 import { createHighlighter } from 'shiki'
-
-export const SERIES = ['ai', 'quantum']
+import { parseFrontmatter, postProblems } from '../src/lib/postFormat.js'
 const LANGS = ['python', 'bash', 'shell', 'json', 'javascript', 'typescript', 'jsx', 'yaml', 'toml', 'sql', 'text']
 const WORDS_PER_MINUTE = 220
 
@@ -21,50 +20,9 @@ let highlighterPromise
 const highlighter = () =>
   (highlighterPromise ??= createHighlighter({ themes: ['github-light', 'github-dark'], langs: LANGS }))
 
-/**
- * Minimal frontmatter reader: `key: value` lines, `[a, b]` lists, quoted
- * strings and booleans. Enough for post metadata without pulling in YAML.
- */
-export function parseFrontmatter(source, file) {
-  const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
-  if (!match) throw new Error(`${file}: missing frontmatter (--- block at the top)`)
-
-  const data = {}
-  for (const raw of match[1].split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const at = line.indexOf(':')
-    if (at === -1) throw new Error(`${file}: bad frontmatter line "${line}"`)
-    const key = line.slice(0, at).trim()
-    let value = line.slice(at + 1).trim()
-
-    if (value.startsWith('[') && value.endsWith(']')) {
-      data[key] = value
-        .slice(1, -1)
-        .split(',')
-        .map(v => unquote(v.trim()))
-        .filter(Boolean)
-    } else if (value === 'true' || value === 'false') {
-      data[key] = value === 'true'
-    } else {
-      data[key] = unquote(value)
-    }
-  }
-  return { data, body: source.slice(match[0].length) }
-}
-
-const unquote = v => v.replace(/^(['"])(.*)\1$/, '$2')
-
-function validate(data, file) {
-  for (const key of ['title', 'description', 'date', 'series']) {
-    if (!data[key]) throw new Error(`${file}: frontmatter needs "${key}"`)
-  }
-  if (!SERIES.includes(data.series)) {
-    throw new Error(`${file}: series must be one of ${SERIES.join(', ')} (got "${data.series}")`)
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) {
-    throw new Error(`${file}: date must be YYYY-MM-DD (got "${data.date}")`)
-  }
+function validate(data, slug, file) {
+  const problems = postProblems(data, slug)
+  if (problems.length) throw new Error(`${file}: ${problems.join('; ')}`)
 }
 
 const slugify = text =>
@@ -108,9 +66,8 @@ export async function renderMarkdown(body) {
 export async function loadPost(file) {
   const source = await readFile(file, 'utf8')
   const { data, body } = parseFrontmatter(source, file)
-  validate(data, file)
   const slug = path.basename(file, '.md')
-  if (SERIES.includes(slug)) throw new Error(`${file}: "${slug}" is reserved for the series page`)
+  validate(data, slug, file)
   const meta = {
     slug,
     title: data.title,
